@@ -10,7 +10,7 @@
  let isPractice = false, mode = 'keyboard', roundTrials = [], signalAt = null, signalDeadline = null, currentKind = 'go';
  let resumeAction = null, exitResumeAction = null, currentReport = null, historyFilter = 'keyboard';
  let soundEnabled = false, audio = null, toastTimer = null, storageAvailable = true;
- let sessionId = '', sequenceOne = 10, sequenceTwo = 20;
+ let sessionId = '', sequenceOne = 10, sequenceTwo = 20, playerNickname = '', lastLiveScore = 0;
 
  function readHistory() {
    try {
@@ -80,10 +80,22 @@
  }
  function home() {
    stopClock(); hideOverlay(); state = 'home'; resumeAction = null;
+   $('playerNickname').disabled = false; window.SpaceCrewOnline?.onStop();
    showScreen('homeScreen'); updateHome(); $('startButton').focus({ preventScroll: true });
  }
  function updateDashboard() {
    const result = ReactionScore.calculate(records);
+   const progress = ReactionScore.progress(records, sequenceOne + sequenceTwo);
+   $('gameNickname').textContent = playerNickname;
+   $('liveScore').textContent = isPractice ? '—' : String(progress.total);
+   $('liveCompleted').textContent = `${records.length} / ${sequenceOne + sequenceTwo}`;
+   $('liveCompletionNote').textContent = isPractice ? '练习不计分、不保存' : '完成后结算并自动保存';
+   const change = progress.total - lastLiveScore;
+   if (state === 'feedback' || !records.length) {
+    $('liveScoreDelta').textContent = isPractice ? '练习不计分' : !records.length ? '等待首题' : change > 0 ? `本题后 +${change} 分` : change < 0 ? `本题后 ${change} 分` : '积分保持';
+    $('liveScoreDelta').className = `score-delta ${change > 0 ? 'rising' : change < 0 ? 'falling' : ''}`; lastLiveScore = progress.total;
+   }
+   window.SpaceCrewOnline?.onProgress({ id: sessionId, nickname: playerNickname, mode, records: [...records], isPractice, state });
    const latest = [...records].reverse().find(r => r.outcome === 'hit');
    $('lastReaction').innerHTML = `${latest ? Math.round(latest.rt) : '—'} <small>ms</small>`;
    $('liveAccuracy').textContent = records.length ? `${result.accuracy}%` : '—';
@@ -97,10 +109,18 @@
    $('liveRule').innerHTML = round === 1 ? '<b>绿灯出现后</b>再操作。<br>红灯时，请耐心等待。' : '<b class="orange-text">橙色陨石：立即拦截</b><br><b class="cyan-text">蓝色友军：不要操作</b>';
  }
  function begin(practice) {
+   const nickname = $('playerNickname').value.normalize('NFKC').trim().replace(/\s+/g, ' ');
+   if ([...nickname].length < 1 || [...nickname].length > 16 || /[<>\p{C}]/u.test(nickname)) {
+    $('nicknameError').textContent = '开始前请填写 1～16 个字符的昵称，避免尖括号和控制字符。';
+    $('playerNickname').setAttribute('aria-invalid', 'true'); $('playerNickname').focus(); return;
+   }
+   playerNickname = nickname; $('playerNickname').value = nickname; $('playerNickname').disabled = true;
+   $('nicknameError').textContent = ''; $('playerNickname').setAttribute('aria-invalid', 'false'); lastLiveScore = 0;
    stopClock(); hideOverlay(); warmAudio(); isPractice = practice; mode = $('inputMode').value;
    records = []; round = 1; trial = 0; sequenceOne = practice ? 3 : 10; sequenceTwo = practice ? 5 : 20;
    roundTrials = Array(sequenceOne).fill('go'); sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-   currentReport = null; $('practiceBadge').hidden = !practice;
+   currentReport = null; $('practiceBadge').hidden = !practice; state = 'briefing';
+   window.SpaceCrewOnline?.onStart({ id: sessionId, nickname: playerNickname, mode, isPractice });
    $('pauseButton').disabled = false; $('exitButton').disabled = false;
    showScreen('gameScreen'); updateDashboard(); briefing();
  }
@@ -190,7 +210,7 @@
  }
  function pause(reason = '挑战已暂停') {
    if (!['waiting', 'arming', 'signal', 'countdown', 'feedback', 'briefing'].includes(state)) return;
-   resumeAction = getResumeAction(state); stopClock(); state = 'paused';
+   resumeAction = getResumeAction(state); stopClock(); state = 'paused'; window.SpaceCrewOnline?.onPhase('paused');
    overlay(`${icon('pause')}<div class="eyebrow">TAKE A BREATH</div><h2>${reason}</h2><p>已经完成的成绩会保留。未完成的这一题会重新开始，不计入错误。</p><div class="overlay-actions"><button class="button primary" id="resumeButton">继续挑战</button><button class="button secondary" id="pauseHomeButton">返回首页</button></div>`);
    $('pauseButton').innerHTML = `${icon('play')} 继续`;
    $('resumeButton').addEventListener('click', () => { const action = resumeAction; hideOverlay(); action(); });
@@ -223,7 +243,7 @@
    return '继续保持专注，先把目标看清。准确率提升后，速度与稳定性得分也会一起提高。';
  }
  function finish() {
-   stopClock(); $('gameProgress').style.width = '100%';
+   stopClock(); $('gameProgress').style.width = '100%'; window.SpaceCrewOnline?.onStop();
    if (isPractice) {
      state = 'practiceDone';
      const correct = ReactionScore.calculate(records).correct;
@@ -234,16 +254,17 @@
    state = 'result'; hideOverlay();
    const result = ReactionScore.calculate(records), all = readHistory(), previous = all.find(r => r.mode === mode);
    const earlierBest = all.filter(r => r.mode === mode).reduce((best, r) => Math.max(best, r.result.total), -1);
-   currentReport = { version: 1, id: sessionId, timestamp: Date.now(), mode, result, records: [...records] };
+   currentReport = { version: 1, id: sessionId, timestamp: Date.now(), nickname: playerNickname, mode, result, records: [...records] };
    const saved = saveHistory([currentReport, ...all.filter(r => r.id !== sessionId)]);
    const title = result.total >= 90 ? '专注之星' : result.total >= 75 ? '敏捷领航员' : result.total >= 60 ? '太空探索者' : '成长中的飞行员';
    const metric = result.median === null ? '—' : result.median;
    const row = (label, value, max) => `<div class="score-row"><span>${label}</span><div class="score-bar"><span style="width:${100 * value / max}%"></span></div><strong>${value} / ${max}</strong></div>`;
    const delta = previous ? result.total - previous.result.total : null;
    const improvement = previous ? (delta > 0 ? `比上次同为${modeNames[mode]}的挑战提高了 ${delta} 分。继续保持自己的节奏！` : delta === 0 ? `与上次${modeNames[mode]}挑战同分。稳定地完成，也是进步的一部分。` : `比上次${modeNames[mode]}挑战低 ${Math.abs(delta)} 分。稍作休息，再试一次；单次成绩会有波动。`) : '第一份飞行记录已完成。下一次使用相同设备与操作方式，就可以看到个人变化。';
-   $('resultScreen').innerHTML = `<div class="result-heading"><div class="eyebrow">MISSION COMPLETE / 任务完成</div><h1>每一次专注，都值得记录</h1><p>30 次挑战已完成。<span id="resultPlayerName">待填写昵称</span> · 本次反应力报告。</p></div><div class="report-grid"><div class="score-card"><div class="score-ring"><svg viewBox="0 0 200 200" aria-hidden="true"><circle cx="100" cy="100" r="88"/><circle class="ring-fill" cx="100" cy="100" r="88" stroke-dasharray="${result.total * 5.5292} 552.92"/></svg><div class="score-number">${result.total}<small>综合得分 / 100</small></div></div><h2>${title}</h2><p>快一点，准一点，稳一点。<br>与上一次的自己一起成长。</p><span class="report-tag">${result.total > earlierBest && earlierBest >= 0 ? '本机同操作方式最佳成绩' : `${modeNames[mode]}模式 · ${dateLabel(currentReport.timestamp)}`}</span></div><div class="report-content"><div class="metric-cards"><div class="metric-card">${icon('bolt')}<span>典型反应时间</span><strong>${metric} <small>ms</small></strong><small>${result.validHits} 次有效反应的中位数</small></div><div class="metric-card">${icon('target')}<span>判断正确率</span><strong>${result.accuracy}<small> %</small></strong><small>${result.correct} / 30 次判断正确</small></div><div class="metric-card">${icon('chart')}<span>反应波动</span><strong>${result.deviation === null ? '—' : result.deviation} <small>ms</small></strong><small>中位绝对偏差 · 越小越稳</small></div></div><div class="breakdown-card"><h3>你的得分构成</h3>${row('速度', result.speed, 50)}${row('准确性', result.precision, 35)}${row('稳定性', result.stability, 15)}</div><div class="advice-card"><h3>给下一次挑战的你</h3><p>${reportAdvice(result)}</p></div></div></div><div class="improvement">${icon('star')}<span id="resultImprovement">${improvement}${!saved ? ' 当前浏览器无法保存记录，请下载成绩。' : ''}</span></div><div class="online-result" id="onlineResult"></div><div class="report-actions"><button class="button primary" id="replayButton">再挑战一次</button><button class="button secondary" id="downloadButton">${icon('download')}下载成绩</button><button class="button quiet" id="resultHomeButton">返回首页</button></div><p class="result-notes">抢跑 / 预判 ${result.early} 次 · 误点友军 ${result.falseAlarms} 次 · 漏答 ${result.misses} 次<br>这是本次游戏的表现评分，适合在同设备、同操作方式下比较个人变化。<button id="resultScoringButton">查看计分规则</button></p>`;
+   $('resultScreen').innerHTML = `<div class="result-heading"><div class="eyebrow">MISSION COMPLETE / 任务完成</div><h1>每一次专注，都值得记录</h1><p>30 次挑战已完成。<span id="resultPlayerName">飞行员</span> · 本次反应力报告。</p></div><div class="report-grid"><div class="score-card"><div class="score-ring"><svg viewBox="0 0 200 200" aria-hidden="true"><circle cx="100" cy="100" r="88"/><circle class="ring-fill" cx="100" cy="100" r="88" stroke-dasharray="${result.total * 5.5292} 552.92"/></svg><div class="score-number">${result.total}<small>综合得分 / 100</small></div></div><h2>${title}</h2><p>快一点，准一点，稳一点。<br>与上一次的自己一起成长。</p><span class="report-tag">${result.total > earlierBest && earlierBest >= 0 ? '本机同操作方式最佳成绩' : `${modeNames[mode]}模式 · ${dateLabel(currentReport.timestamp)}`}</span></div><div class="report-content"><div class="metric-cards"><div class="metric-card">${icon('bolt')}<span>典型反应时间</span><strong>${metric} <small>ms</small></strong><small>${result.validHits} 次有效反应的中位数</small></div><div class="metric-card">${icon('target')}<span>判断正确率</span><strong>${result.accuracy}<small> %</small></strong><small>${result.correct} / 30 次判断正确</small></div><div class="metric-card">${icon('chart')}<span>反应波动</span><strong>${result.deviation === null ? '—' : result.deviation} <small>ms</small></strong><small>中位绝对偏差 · 越小越稳</small></div></div><div class="breakdown-card"><h3>你的得分构成</h3>${row('速度', result.speed, 50)}${row('准确性', result.precision, 35)}${row('稳定性', result.stability, 15)}</div><div class="advice-card"><h3>给下一次挑战的你</h3><p>${reportAdvice(result)}</p></div></div></div><div class="improvement">${icon('star')}<span id="resultImprovement">${improvement}${!saved ? ' 当前浏览器无法保存记录，请下载成绩。' : ''}</span></div><div class="online-result" id="onlineResult"></div><div class="report-actions"><button class="button primary" id="replayButton">再挑战一次</button><button class="button secondary" id="downloadButton">${icon('download')}下载成绩</button><button class="button quiet" id="resultHomeButton">返回首页</button></div><p class="result-notes">抢跑 / 预判 ${result.early} 次 · 误点友军 ${result.falseAlarms} 次 · 漏答 ${result.misses} 次<br>这是本次游戏的表现评分，适合在同设备、同操作方式下比较个人变化。<button id="resultScoringButton">查看计分规则</button></p>`;
    showScreen('resultScreen'); $('replayButton').addEventListener('click', () => begin(false)); $('resultHomeButton').addEventListener('click', home);
    $('downloadButton').addEventListener('click', downloadReport); $('resultScoringButton').addEventListener('click', showHelp);
+   $('resultPlayerName').textContent = playerNickname;
    window.SpaceCrewOnline?.onResult(currentReport);
    $('replayButton').focus({ preventScroll: true }); announce(`挑战完成，总分 ${result.total} 分，正确率 ${result.accuracy}%。`);
  }

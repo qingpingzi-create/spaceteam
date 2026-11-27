@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { calculate, median } = require('./dist/scoring.js');
+const { calculate, median, progress } = require('./dist/scoring.js');
 const hit = (rt, round = 1) => ({ outcome: 'hit', rt, round });
 const correctReject = { outcome: 'correctReject', rt: null, round: 2 };
 assert.equal(median([400, 250, 300, 350]), 325);
@@ -24,6 +24,9 @@ assert.equal(calculate([hit(300), hit(300)]).stability, 0);
 const outlier = calculate([hit(300), hit(310), hit(320), hit(1500)]);
 assert.equal(outlier.median, 315);
 assert.equal(calculate([]).total, 0);
+assert.equal(progress([]).total, 0);
+assert.equal(progress([hit(300)]).total, 3);
+assert.equal(progress(Array(30).fill(hit(300))).total, calculate(Array(30).fill(hit(300))).total);
 for (let i = 0; i < 1000; i++) {
  const score = calculate(Array.from({ length: 30 }, () => Math.random() > .3 ? hit(100 + Math.random() * 1700) : { outcome: 'miss' }));
  assert.ok(score.total >= 0 && score.total <= 100);

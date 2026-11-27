@@ -44,6 +44,18 @@ async function run() {
   assert.equal(history.count, 2); assert.equal(history.items.length, 2);
   assert.equal((await call('/api/history?mode=keyboard', null, 'c'.repeat(64))).body.count, 0);
   assert.equal((await call('/api/history')).status, 401);
+  const preview = (recordList, token = 'c'.repeat(64)) => call('/api/live-position', { ...first, id: 'live-preview-001', nickname: '实时挑战者', playerToken: token, records: recordList });
+  const startPosition = await preview([]);
+  assert.equal(startPosition.status, 200); assert.equal(startPosition.body.rank, 3); assert.equal(startPosition.body.score, 0);
+  assert.equal(startPosition.body.items.filter(row => row.isYou).length, 1);
+  const winningPosition = await preview(records(200));
+  assert.equal(winningPosition.body.rank, 1); assert.equal(winningPosition.body.score, 100);
+  const ownBestPosition = await preview(records(300).slice(0, 1), playerA);
+  assert.equal(ownBestPosition.body.rankedScore, 98); assert.equal(ownBestPosition.body.score, 3);
+  assert.equal(ownBestPosition.body.rank, 2); assert.equal(ownBestPosition.body.items.filter(row => row.isYou).length, 1);
+  assert.equal((await preview(records(99).slice(0, 2))).status, 400);
+  assert.equal((await call('/api/stats')).body.totalGames, 4); // Live previews are strictly read-only.
+  assert.equal((await call('/api/stats')).body.totalPlayers, 2);
   assert.equal((await call('/api/leaderboard?mode=invalid')).status, 400);
   assert.equal((await call('/api/leaderboard?offset=-1')).status, 400);
   const cross = await api(new Request('https://game.test/api/scores', { method: 'POST', headers: { Origin: 'https://other.test', 'Content-Type': 'application/json' }, body: JSON.stringify(first) }), { DB: db });

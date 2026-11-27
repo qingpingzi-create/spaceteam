@@ -28,7 +28,12 @@
       stageOneMedian: median(records.filter(r => r.round === 1 && r.outcome === 'hit').map(r => r.rt))
     };
   }
-  const api = { median, calculate };
+  function progress(records, planned = 30) {
+    const result = calculate(records);
+    const completion = Math.min(records.length / Math.max(1, planned), 1);
+    return { ...result, performanceTotal: result.total, total: Math.round(result.total * completion), completion };
+  }
+  const api = { median, calculate, progress };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ReactionScore = api;
 })(typeof window === 'undefined' ? globalThis : window);

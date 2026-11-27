@@ -26,6 +26,7 @@ function harness(options = {}) {
  const $ = id => { if (!nodes.has(id)) nodes.set(id, new Node(id)); return nodes.get(id); };
  const html = fs.readFileSync(__dirname + '/dist/index.html', 'utf8');
  for (const match of html.matchAll(/\bid="([^"]+)"/g)) $(match[1]);
+ $('playerNickname').value = '测试飞行员';
  const doc = {
   getElementById: $, hidden: false, fullscreenElement: null,
   querySelector: sel => sel === '.brand' ? $('brand') : sel === 'dialog[open]' ? [...nodes.values()].find(n => n.open) : null,
@@ -95,6 +96,10 @@ function harness(options = {}) {
  assert.equal(stored[0].result.total, 96);
  assert.equal(stored[0].result.accuracy, 100);
  assert.equal(stored[0].result.median, 300);
+ assert.equal(stored[0].nickname, '测试飞行员');
+ assert.equal(h.$('gameNickname').textContent, '测试飞行员');
+ assert.equal(h.$('liveScore').textContent, '96');
+ assert.equal(h.$('liveCompleted').textContent, '30 / 30');
  h.$('historyButton').click();
  assert.match(h.$('historyContent').innerHTML, /300 ms · 正确率 100%/);
  assert.match(h.$('historyContent').innerHTML, /96/);
@@ -145,3 +150,22 @@ function harness(options = {}) {
  assert.match(h.$('resultScreen').innerHTML, /无法保存记录/);
 }
 console.log('PASS: full 30-trial challenge, 8-trial practice, exact target mix, result/history, pause/resume, early and exclusive input, visibility pause, touch input and unavailable storage.');
+{
+ const h = harness(); h.$('playerNickname').value = '  ';
+ h.$('startButton').click();
+ assert.match(h.$('nicknameError').textContent, /开始前请填写/);
+ assert.equal(h.$('playerNickname').attributes['aria-invalid'], 'true');
+ assert.equal(h.$('arenaOverlay').innerHTML, '');
+ h.$('playerNickname').value = '<script>'; h.$('practiceButton').click();
+ assert.equal(h.$('arenaOverlay').innerHTML, '');
+ h.$('playerNickname').value = '  星星 同学  '; h.$('startButton').click();
+ assert.equal(h.$('gameNickname').textContent, '星星 同学');
+ assert.equal(h.$('playerNickname').disabled, true);
+ assert.equal(h.$('liveScore').textContent, '0');
+ h.$('readyButton').click(); h.until(() => h.$('arena').className === 'arena go'); h.tick(300); h.press();
+ assert.equal(h.$('liveScore').textContent, '3');
+ assert.match(h.$('liveScoreDelta').textContent, /\+3/);
+ h.$('exitButton').click(); h.$('confirmExitButton').click();
+ assert.equal(h.$('playerNickname').disabled, false);
+}
+console.log('PASS: nickname required before every game, nickname lock during play, live score and final-score consistency.');
