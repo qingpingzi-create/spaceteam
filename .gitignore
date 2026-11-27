@@ -11,3 +11,9 @@ node_modules/
 *.zip
 .DS_Store
 Thumbs.db
+
+.local-data/
+.wrangler/
+*.sqlite*
+dist/server/
+dist/.openai/
