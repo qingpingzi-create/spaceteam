@@ -1,0 +1,13 @@
+# Local hosting identity, credentials and development state
+.openai/
+.sites-runtime/
+.sites-checkout/
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+*.tar.gz
+*.zip
+.DS_Store
+Thumbs.db

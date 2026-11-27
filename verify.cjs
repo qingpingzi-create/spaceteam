@@ -1,0 +1,31 @@
+const assert = require('node:assert/strict');
+const { calculate, median } = require('./dist/scoring.js');
+const hit = (rt, round = 1) => ({ outcome: 'hit', rt, round });
+const correctReject = { outcome: 'correctReject', rt: null, round: 2 };
+assert.equal(median([400, 250, 300, 350]), 325);
+assert.equal(median([]), null);
+const perfect = calculate([...Array(24).fill(hit(250)), ...Array(6).fill(correctReject)]);
+assert.equal(perfect.total, 100);
+assert.equal(perfect.accuracy, 100);
+const noResponses = calculate([...Array(24).fill({ outcome: 'miss' }), ...Array(6).fill(correctReject)]);
+assert.equal(noResponses.total, 7);
+assert.equal(noResponses.median, null);
+const mash = calculate(Array(30).fill({ outcome: 'early' }));
+assert.equal(mash.total, 0);
+const stable = calculate(Array(30).fill(hit(400)));
+const unstable = calculate(Array.from({ length: 30 }, (_, i) => hit(i % 2 ? 650 : 150)));
+assert.equal(stable.median, unstable.median);
+assert.ok(stable.stability > unstable.stability);
+const errors = calculate([...Array(15).fill(hit(400)), ...Array(15).fill({ outcome: 'falseAlarm' })]);
+assert.ok(Math.abs(errors.speed - stable.speed * .5) <= .1);
+assert.equal(errors.stability, stable.stability * .5);
+assert.equal(errors.accuracy, 50);
+assert.equal(calculate([hit(300), hit(300)]).stability, 0);
+const outlier = calculate([hit(300), hit(310), hit(320), hit(1500)]);
+assert.equal(outlier.median, 315);
+assert.equal(calculate([]).total, 0);
+for (let i = 0; i < 1000; i++) {
+ const score = calculate(Array.from({ length: 30 }, () => Math.random() > .3 ? hit(100 + Math.random() * 1700) : { outcome: 'miss' }));
+ assert.ok(score.total >= 0 && score.total <= 100);
+}
+console.log('PASS: scoring boundaries, non-response, random pressing, accuracy weighting, robustness and stability.');
