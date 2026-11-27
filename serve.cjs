@@ -14,7 +14,8 @@ const server = http.createServer(async (req, res) => {
   try {
    const chunks = []; let size = 0;
    for await (const chunk of req) { size += chunk.length; if (size > 64000) { res.writeHead(413).end(); return; } chunks.push(chunk); }
-   const request = new Request('http://127.0.0.1:4173' + req.url, { method: req.method, headers: req.headers, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: Buffer.concat(chunks) }) });
+   const localOrigin = req.headers.host === 'localhost:4173' ? 'http://localhost:4173' : 'http://127.0.0.1:4173';
+   const request = new Request(localOrigin + req.url, { method: req.method, headers: req.headers, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: Buffer.concat(chunks) }) });
    const response = await (await apiPromise)(request, { DB: db });
    res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer()));
   } catch { res.writeHead(500).end('Local service error'); }
