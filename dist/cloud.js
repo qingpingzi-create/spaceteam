@@ -1,6 +1,7 @@
 (() => {
  'use strict';
  const $ = id => document.getElementById(id), STORE = 'space-crew-flights-v1', PROFILES = 'space-crew-players-v1';
+ const browserBoard = window.SpaceCrewBrowserBoard;
  const names = { keyboard: '空格键', mouse: '鼠标', touch: '触屏' };
  const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
  const normalize = value => value.normalize('NFKC').trim().replace(/\s+/g, ' ');
@@ -21,6 +22,7 @@
   return { ...player, remembered };
  }
  async function request(path, options = {}) {
+  if (browserBoard) return browserBoard.request(path, options);
   if (!/^https?:$/.test(location.protocol)) throw Error('离线文件模式不连接共享榜。请通过已部署的网站或本机服务使用排行榜。');
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 10000);
   try {
@@ -39,11 +41,11 @@
    $(prefix + 'Players').textContent = Number(data.totalPlayers).toLocaleString('zh-CN');
    $(prefix + 'Games').textContent = Number(data.totalGames).toLocaleString('zh-CN');
   }
-  $('communityStatus').textContent = '已提交正式成绩 · 昵称档案去重';
+  $('communityStatus').textContent = browserBoard ? '仅统计此浏览器 · 相同昵称去重' : '已提交正式成绩 · 昵称档案去重';
  }
  async function loadStats() {
   try { setStats(await request('/api/stats')); }
-  catch { $('communityStatus').textContent = '共享数据暂不可用 · 本机游戏仍可使用'; }
+  catch { $('communityStatus').textContent = browserBoard ? '此浏览器暂时无法读取成绩' : '共享数据暂不可用 · 本机游戏仍可使用'; }
  }
  function storeNickname(nickname, status) {
   report.nickname = nickname; report.cloudStatus = status;
@@ -62,7 +64,8 @@
    const data = await request('/api/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
    storeNickname(payload.nickname, 'submitted'); setStats(data);
    button.textContent = '已自动保存'; $('submissionStatus').classList.add('success');
-   $('submissionStatus').textContent = `${payload.nickname} 的 ${data.saved.score} 分成绩已保存。本次不会重复计数，积分榜将自动更新。`;
+   const destination = browserBoard ? '此浏览器' : '共享榜';
+   $('submissionStatus').textContent = `${payload.nickname} 的 ${data.saved.score} 分成绩已保存到${destination}，积分榜已更新。`;
   } catch (error) {
    button.disabled = false; button.textContent = '重试保存';
    $('submissionStatus').textContent = error.message || '暂时无法保存到共享榜，本机成绩已保留。';
@@ -70,7 +73,7 @@
  }
  async function onResult(value) {
   onStop(); report = value; payload = null;
-  $('onlineResult').innerHTML = `<div class="nickname-copy"><div class="eyebrow">FLIGHT LOG / AUTO SAVE</div><h3>挑战完成，正在记录你的成绩</h3><p>玩家：<strong>${escape(value.nickname)}</strong>。昵称已在开始前确认，最终成绩会自动加入积分榜。</p></div><div class="result-save-controls"><button class="button primary" id="submitScoreButton">自动保存成绩</button><p id="submissionStatus" class="submission-status" role="status">正在准备保存…</p><button class="button secondary small" id="resultBoardButton">查看积分榜与历史</button></div>`;
+  $('onlineResult').innerHTML = `<div class="nickname-copy"><div class="eyebrow">FLIGHT LOG / AUTO SAVE</div><h3>挑战完成，正在记录你的成绩</h3><p>玩家：<strong>${escape(value.nickname)}</strong>。最终成绩会自动加入${browserBoard ? '本机' : '共享'}积分榜。</p></div><div class="result-save-controls"><button class="button primary" id="submitScoreButton">自动保存成绩</button><p id="submissionStatus" class="submission-status" role="status">正在准备保存…</p><button class="button secondary small" id="resultBoardButton">查看积分榜与历史</button></div>`;
   $('submitScoreButton').addEventListener('click', submitResult);
   $('resultBoardButton').addEventListener('click', open);
   try {
@@ -86,7 +89,8 @@
  }
  function drawRows() {
   if (!items.length) {
-   $('leaderboardContent').innerHTML = `<div class="empty-state"><h3>${view === 'ranking' ? '还没有上榜成绩' : '这个昵称还没有此操作方式的云端成绩'}</h3><p>开始前填写昵称，完成正式挑战就能留下记录。</p></div>`; return;
+   const emptyTitle = view === 'ranking' ? '还没有上榜成绩' : '这个昵称还没有此操作方式的成绩';
+   $('leaderboardContent').innerHTML = `<div class="empty-state"><h3>${emptyTitle}</h3><p>开始前填写昵称，完成正式挑战就能留下记录。</p></div>`; return;
   }
   const scope = `${view}:${mode}`, sameScope = previousScope === scope;
   $('leaderboardContent').innerHTML = `<div class="ranking-table-wrap"><table class="ranking-table"><thead><tr><th>${view === 'ranking' ? '排名 / 变化' : '次数'}</th><th>玩家 / 时间</th><th>得分</th><th>反应 / 正确率</th></tr></thead><tbody>${items.map((r, i) => {
@@ -116,7 +120,7 @@
    }
    else {
     const player = profiles()[Number($('historyPlayerSelect').value)];
-    if (!player) { $('leaderboardContent').innerHTML = '<div class="empty-state"><h3>先留下一个昵称</h3><p>完成正式挑战并提交昵称后，可以在这里查看你的云端历史成绩。</p></div>'; return; }
+    if (!player) { $('leaderboardContent').innerHTML = '<div class="empty-state"><h3>先留下一个昵称</h3><p>完成正式挑战后，可以在这里查看你的历史成绩。</p></div>'; return; }
     data = await request(`/api/history?mode=${mode}&offset=${offset}`, { headers: { Authorization: `Bearer ${player.token}` } });
    }
    if (run !== generation) return;
@@ -126,8 +130,8 @@
    $('boardStatus').textContent = view === 'ranking' ? `${names[mode]}榜 · ${data.count} 位玩家 · 已自动更新` : `共 ${data.count} 次正式成绩 · 最新在前`;
   } catch (error) {
    if (run !== generation) return;
-   if (!append) $('leaderboardContent').innerHTML = `<div class="empty-state"><h3>共享记录暂时无法读取</h3><p>${escape(error.message || '请稍后点击刷新再试。')}</p></div>`;
-   $('boardStatus').textContent = '未能连接共享数据，可点击刷新重试。';
+   if (!append) $('leaderboardContent').innerHTML = `<div class="empty-state"><h3>成绩记录暂时无法读取</h3><p>${escape(error.message || '请稍后点击刷新再试。')}</p></div>`;
+   $('boardStatus').textContent = '未能读取成绩，可点击刷新重试。';
    if (append) $('boardLoadMore').hidden = false;
   } finally {
    if (run === generation) { busy = false; $('boardLoadMore').disabled = false; $('boardRefreshButton').disabled = false; }
@@ -162,7 +166,7 @@
   if (!active || !['briefing', 'feedback', 'paused'].includes(phase)) return;
   if (pendingLiveError) {
    $('liveRankStatus').textContent = pendingLiveError; pendingLiveError = '';
-   if (lastRank === null) { $('liveRank').textContent = '—'; $('liveRankDelta').textContent = '共享榜暂不可用'; }
+   if (lastRank === null) { $('liveRank').textContent = '—'; $('liveRankDelta').textContent = '积分榜暂不可用'; }
    else { $('liveRankDelta').textContent = '上次读取的位次'; $('liveRankDelta').className = ''; }
   }
   if (!pendingLive) return;
@@ -187,7 +191,7 @@
    if (data.completed === active.records.length) { pendingLive = data; paintLive(); }
   } catch {
    if (version !== liveGeneration || !active) return;
-   pendingLiveError = '共享榜暂时无法连接，当前积分照常更新；联网后自动重试。'; paintLive();
+   pendingLiveError = browserBoard ? '暂时无法读取本机榜，当前积分照常更新。' : '共享榜暂时无法连接，当前积分照常更新；联网后自动重试。'; paintLive();
   } finally {
    if (version === liveGeneration) { liveBusy = false; if (liveQueued) refreshLive(); }
   }
